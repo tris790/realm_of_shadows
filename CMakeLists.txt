@@ -11,6 +11,8 @@ add_executable(host "")
 target_sources(host
     PRIVATE
     src/host.cpp
+    src/fswatcher/fswatcher.cpp
+    src/fswatcher/fswatcher.h
 )
 
 target_include_directories(host
@@ -40,6 +42,7 @@ target_include_directories(guest
     lib/imgui
     lib/gl3w
     lib/glfw
+    src/fswatcher
 )
 
 target_link_libraries(guest 
