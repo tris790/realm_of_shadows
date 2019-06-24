@@ -11,9 +11,6 @@
 
 #include "cr.h"
 
-// To test imgui 100% guest side, enable this
-//#define IMGUI_GUEST_ONLY
-
 // Data that comes from Host, mostly things that is managed by the host
 // or we don't own, so we be sure they're alive (ie. imgui context, so that
 // during reload we don't flick/reposition windows)
@@ -47,10 +44,6 @@ static HostData *g_data = nullptr; // hold user data kept on host and received f
 // Some saved state between reloads
 static auto CR_STATE g_clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
 static unsigned int CR_STATE g_version = 0;
-#if defined(IMGUI_GUEST_ONLY)
-static ImGuiContext CR_STATE *g_imgui_context = nullptr;
-static ImFontAtlas CR_STATE *g_default_font_atlas = nullptr;
-#endif // #if defined(IMGUI_GUEST_ONLY)
 
 // From here on is the imgui sample stuff
 static double CR_STATE g_Time = 0.0f;
@@ -63,6 +56,49 @@ static unsigned int CR_STATE g_VboHandle = 0, g_VaoHandle = 0, g_ElementsHandle 
 // Use if you want to reset your rendering device without losing ImGui state.
 void ImGui_ImplGlfwGL3_InvalidateDeviceObjects();
 bool ImGui_ImplGlfwGL3_CreateDeviceObjects();
+
+void gl_frame_draw()
+{
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    GLuint VertexArrayID;
+    glGenVertexArrays(1, &VertexArrayID);
+    glBindVertexArray(VertexArrayID);
+
+    static const GLfloat g_vertex_buffer_data[] = {
+        -0.5f,
+        -0.5f,
+        0.0f,
+        0.5f,
+        -0.5f,
+        0.0f,
+        0.0f,
+        0.5f,
+        0.0f,
+    };
+
+    // This will identify our vertex buffer
+    GLuint vertexbuffer;
+    // Generate 1 buffer, put the resulting identifier in vertexbuffer
+    glGenBuffers(1, &vertexbuffer);
+    // The following commands will talk about our 'vertexbuffer' buffer
+    glBindBuffer(GL_ARRAY_BUFFER, vertexbuffer);
+    // Give our vertices to OpenGL.
+    glBufferData(GL_ARRAY_BUFFER, sizeof(g_vertex_buffer_data), g_vertex_buffer_data, GL_STATIC_DRAW);
+    glEnableVertexAttribArray(0);
+
+    glBindBuffer(GL_ARRAY_BUFFER, vertexbuffer);
+    glVertexAttribPointer(
+        0,        // attribute 0. No particular reason for 0, but must match the layout in the shader.
+        3,        // size
+        GL_FLOAT, // type
+        GL_FALSE, // normalized?
+        0,        // stride
+        (void *)0 // array buffer offset
+    );
+    // Draw the triangle !
+    glDrawArrays(GL_TRIANGLES, 0, 3); // Starting from vertex 0; 3 vertices total -> 1 triangle
+    glDisableVertexAttribArray(0);
+}
 
 // This is the main rendering function that you have to implement and provide to ImGui (via setting up 'RenderDrawListsFn' in the ImGuiIO structure)
 // Note that this implementation is little overcomplicated because we are saving/setting up/restoring every OpenGL state explicitly, in order to be able to run within any OpenGL engine that doesn't do so.
@@ -343,21 +379,11 @@ bool imui_init()
 {
     gl3wInit();
 
-#if defined(IMGUI_GUEST_ONLY)
-    if (!g_imgui_context)
-    {
-        g_imgui_context = new ImGuiContext;
-        g_default_font_atlas = new ImFontAtlas;
-    }
-    ImGui::SetCurrentContext(g_imgui_context);
-    ImGui::GetIO().Fonts = g_default_font_atlas;
-#else
     // This will use the imgui context created in the host side
     // this is needed because imgui has two statics (context and font atlas)
     // also ImVector has destructor that delete its contents, so we cannot
     // rely on imgui internal state, we must manage it.
     ImGui::SetCurrentContext(g_data->imgui_context);
-#endif
 
     ImGuiIO &io = ImGui::GetIO();
     io.KeyMap[ImGuiKey_Tab] = GLFW_KEY_TAB; // Keyboard mapping. ImGui will use those indices to peek into the io.KeyDown[] array.
@@ -392,18 +418,7 @@ bool imui_init()
 void imui_shutdown()
 {
     ImGui_ImplGlfwGL3_InvalidateDeviceObjects();
-#if !defined(IMGUI_GUEST_ONLY)
     ImGui::Shutdown(g_data->imgui_context);
-#else
-    ImGui::Shutdown(g_imgui_context);
-
-    // Trying to get imgui to be 100% in guest context, not working right now.
-    delete g_default_font_atlas;
-    g_default_font_atlas = nullptr;
-
-    delete g_imgui_context;
-    g_imgui_context = nullptr;
-#endif
 }
 
 void imui_frame_end()
@@ -411,6 +426,7 @@ void imui_frame_end()
     glViewport(0, 0, g_data->display_w, g_data->display_h);
     glClearColor(g_clear_color.x, g_clear_color.y, g_clear_color.z, g_clear_color.w);
     glClear(GL_COLOR_BUFFER_BIT);
+    gl_frame_draw();
     ImGui::Render();
 }
 
@@ -497,7 +513,7 @@ void imui_draw()
     // Tip: if we don't call ImGui::Begin()/ImGui::End() the widgets appears in a window automatically called "Debug"
     {
         static CR_STATE float f = 0.0f;
-        ImGui::Text("test debug");
+        ImGui::Text("test debug 2");
         ImGui::SliderFloat("float", &f, 0.0f, 1.0f);
         ImGui::ColorEdit3("clear color", (float *)&g_clear_color);
         if (ImGui::Button("Test window"))
@@ -527,7 +543,8 @@ void imui_draw()
     }
 }
 
-CR_EXPORT int cr_main(cr_plugin *ctx, cr_op operation)
+CR_EXPORT int
+cr_main(cr_plugin *ctx, cr_op operation)
 {
     assert(ctx);
     g_data = (HostData *)ctx->userdata;

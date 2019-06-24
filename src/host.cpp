@@ -123,7 +123,7 @@ void glfw_funcs()
 
 static bool watch_event_handler(fswatcher_event_handler *handler, fswatcher_event_type evtype, const char *src, const char *dst)
 {
-	if (evtype && std::chrono::duration<double, std::milli>(Clock::now() - last_watch_time).count() > 1000)
+	if (evtype)
 	{
 		printf("Recompiling\n");
 		std::thread worker([]() { system(DLL_COMPILATION_COMMAND); });
@@ -143,7 +143,7 @@ int main(int argc, char **argv)
 	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 	window = glfwCreateWindow(1024, 768, "IMGUI Reloadable", NULL, NULL);
 	glfwMakeContextCurrent(window);
-	glfwSwapInterval(1);
+	glfwSwapInterval(0);
 
 #ifdef _WIN32
 	data.wndh = glfwGetWin32Window(window);
@@ -181,7 +181,10 @@ int main(int argc, char **argv)
 
 		glfwSwapBuffers(window);
 
-		fswatcher_poll(watcher, &fshandler, 0x0);
+		if (std::chrono::duration<double, std::milli>(Clock::now() - last_watch_time).count() > 1000)
+		{
+			fswatcher_poll(watcher, &fshandler, 0x0);
+		}
 	}
 
 	cr_plugin_close(ctx);
